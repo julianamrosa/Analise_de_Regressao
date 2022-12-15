@@ -1,0 +1,658 @@
+---
+title: "Trabalho Final"
+author: "Aline de Almeida Ramos e Juliana Magalhães Rosa"
+date: "05/05/2022"
+output: 
+  pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.height=4, fig.width=6)
+```
+
+# Introdução
+
+Este trabalho aborda aspectos relacionados à duração de internações em hospitais dos Estados Unidos.  
+Os dados analisados são compostos de uma amostra aleatória de 113 hospitais dos 338 que participaram da pesquisa entre 1975 e 1976.  
+
+
+Foram estudadas as seguintes variáveis:  
+- Número de Identificação (ID): variável qualitativa nominal;  
+- Duração da Internação (X1): variável quantitativa contínua;  
+- Idade (X2): variável quantitativa contínua;  
+- Risco de Infecção (X3): variável quantitativa contínua;  
+- Proporção de Culturas de Rotina (X4): variável quantitativa contínua;  
+- Proporção de Raio-X de Tórax de Rotina (X5): variável quantitativa contínua;  
+- Número de leitos (X6): variável quantitativa discreta;  
+- Filiação a Escola de Medicina (X7): variável qualitativa nominal;  
+- Região (X8): variável qualitativa nominal;  
+- Média diária de pacientes (X9): variável quantitativa discreta;  
+- Número de enfermeiro(s) (X10): variável quantitativa discreta;  
+- Facilidades e serviços disponíveis (X11): variável quantitativa contínua.  
+
+# Objetivos
+
+O intuito deste trabalho é investigar duas hipóteses de pesquisa:  
+- Hipótese 1: O número de enfermeira(o)s está relacionado às instalações e serviços disponíveis através de um modelo de segunda ordem. Suspeita-se também que varie segundo a região.  
+- Hipótese 2: A duração da internação está associada a características do paciente, do seu tratamento e do hospital.  
+Em relação à segunda hipótese, deseja-se verificar quais seriam essas características e também quantificar seu grau de associação com o tempo de internação.  
+
+# Metodologia
+
+O método utilizado para o desenvolvimento dessas análises é o de Regressão Linear Múltipla com as seguintes etapas de trabalho:  
+- Preparação dos dados;  
+- Seleção de variáveis (quando necessário);  
+- Análise exploratória;  
+- Seleção do modelo inicial;  
+- Diagnóstico do modelo;  
+- Medidas corretivas (se necessário);  
+- Validação do modelo;  
+- Modelo final.  
+
+
+A execução dessas etapas foi feita por meio do Software R.
+
+# Resultados
+
+## Hipótese 1
+
+*O número de enfermeira(o)s está relacionado às instalações e serviços disponíveis através de um modelo de segunda ordem. Suspeita-se também que varie segundo a região.*  
+
+### Preparação dos dados
+
+```{r include=FALSE}
+#Carregando pacotes necessários
+library(readxl)
+library(tidyverse)
+library(lmtest)
+require(leaps)
+library(knitr)
+library(stargazer)
+```
+
+```{r echo=FALSE}
+#Lendo e preparando os dados
+dados_hosp <-read_excel("Dados_trabalho_20212.xlsx")
+dados_hosp <- drop_na(dados_hosp) #Tirando linhas extras
+```
+
+Os dados utilizados estavam em formato xlsx e continham linhas vazias. Sendo assim, após a leitura desses dados no R, foi necessária a exclusão dessas linhas extras para obter apenas as 113 entradas que compõem a amostra.
+
+```{r echo=FALSE}
+#Dando uma olhada nos dados
+str(dados_hosp)
+```
+
+```{r echo=FALSE}
+#Arrumando tipo das variáveis
+dados_hosp$ID <- as.character(dados_hosp$ID)
+dados_hosp$X6 <- as.integer(dados_hosp$X6)
+dados_hosp$X7 <- as.integer(dados_hosp$X7)
+dados_hosp$X8 <- as.integer(dados_hosp$X8)
+dados_hosp$X9 <- as.integer(dados_hosp$X9)
+dados_hosp$X10 <- as.integer(dados_hosp$X10)
+```
+
+Também foi necessária a modificação dos tipos de variáveis, uma vez que todas as colunas foram lidas como numéricas (decimais).  
+Vale comentar que as informações relativas à Região e à Filiação à Escola de Medicina foram codificadas, já nos dados originais. As regiões NE, NC, S e W são representadas por 1, 2, 3 e 4, respectivamente. Já a filiação tem 1 para as respostas positivas (sim) e 2 para as respostas negativas (não).
+
+```{r echo=FALSE}
+temp = rep(0, 113)
+temp[dados_hosp$X7==2]=1
+dados_hosp$X7 <- temp
+x7<-factor(temp,label = c("sim", "não"), level = 0:1) #agora sim=0 e não=1
+x8<-dados_hosp$X8
+```
+
+```{r echo=FALSE}
+# Criando variáveis dummy para Região
+dados_hosp$XNE <- ifelse(x8==1, 1, 0)
+dados_hosp$XNC <- ifelse(x8==2, 1, 0)
+dados_hosp$XS <- ifelse(x8==3, 1, 0)
+x8<-factor(dados_hosp$X8,label = c("NE", "NC", "S", "W"), level = 1:4)
+```
+
+Para as variáveis qualitativas, existe a necessidade de criar variáveis *dummy* antes da construção do modelo. Esse tipo de variável tem como possíveis valores apenas o 0 e o 1.  
+Como a filiação à escola de medicina já é uma variável binária, bastou converter sua codifição para 0 (sim) e 1 (não).  
+Já para a região, foram criadas 3 variáveis *dummy* para NE, NC e S.
+
+```{r echo=FALSE}
+#Selecionando amostra para construção do modelo
+set.seed(1618000041)
+indices <- sample(c(1:113), size=57)
+amostra <- dados_hosp[indices, ] #amostra para treinamento
+amostra_validacao <- dados_hosp[-indices, ] #amostra para validação
+```
+
+Para a construção dos modelos de regressão, foi extraída uma amostra de 57 hospitais. Sendo os 56 hospitais remanescentes deixados em uma amostra de validação que será utilizada nas etapas finais do trabalho.
+
+### Análise Exploratória
+
+```{r echo=FALSE}
+#Investigação inicial
+cor1 <- cor(amostra[,-c(1,8,9,13:15)]) #fortes: x6 e x9; x6 e x10; x6 e x11; x9 e x10; x9 e x11; x10 e x11
+plot(amostra[,-c(1,8,9,13:15)], main='Associação entre Todas as Variáveis', col="olivedrab")
+kable(cor1, digits = 4, caption="Coeficientes de Correlação entre Todas as Variáveis")
+```
+
+Observando os coeficientes de correlação entre as variáveis quantitativas, percebe-se que as únicas correlações fortes encontradas foram entre as variáveis relativas ao número de leitos (X6), à média diária de pacientes (X9), ao número de enfermeiro(s) (X10) e aos serviços disponíveis (X11). Todas essas características, pareadas, estão fortemente associadas.  
+A mesma conclusão pode ser retirada a partir dos gráficos de dispersão apresentados.
+
+```{r echo=FALSE}
+#Variável qualitativa x7
+tabx7 <- table(x7[indices])
+kable(prop.table(tabx7), col.names=c("Filiação", "Frequência"), caption="Frequências Relativas para a Filiação à Escola de Medicina") #Frequência Relativa
+```
+
+De acordo com a tabela acima, 15,79% dos hospitais estão filiados a escolas de medicina, enquanto 84,21% não estão.
+
+``` {r echo=FALSE}
+#Variável qualitativa x8
+tabx8 <- table(x8[indices])
+kable(prop.table(tabx8), col.names=c("Região", "Frequência"), caption="Frequências Relativas para as Regiões") #Frequência Relativa
+```
+
+Em relação a nossa amostra, a região com maior porcentagem de hospitais é a NC (33,33%), seguida das regiões NE e S, ambas com 24,56% e, por fim, a região W, que contém 17,54% dos hospitais da amostra.  
+
+A seguir, é apresentada uma análise da variável resposta (X10 - Número de Enfermeiros).
+
+```{r echo=FALSE}
+#Gráficos para a variável Resposta
+stem(amostra$X10)
+hist(amostra$X10, main="Distribuição do Número de Enfermeiros nos Hospitais", xlab="Número de Enfermeiros", ylab="Frequência", col="turquoise3")
+```
+
+Visualizando a distribuição do número de enfermeiros, percebe-se que não há normalidade desses dados, e sim uma assimetria à direita. O mais comum é que hajam até 200 enfermeiros por hospital.
+
+``` {r echo=FALSE}
+#Medidas descritivas para a variável resposta
+boxplot(amostra$X10, main="Distribuição do Número de Enfermeiros nos Hospitais", ylab="Número de Enfermeiros", col="turquoise3")
+medidas1 <- amostra%>%
+  summarize(media=mean(X10), q1=quantile(X10, 0.25),
+            mediana=median(X10), q3=quantile(X10, 0.75), q4=max(X10),
+            amplitude=max(X10)-min(X10), iiq=IQR(X10), variancia=var(X10),
+            dp=sd(X10), cv=sd(X10)/mean(X10), Ap=3*(media-mediana)/dp,
+            Aq=((q3-mediana)-(mediana-q1))/iiq,
+            k=(q3-q1)/(2*(quantile(X10, 0.9)-quantile(X10, 0.1))))
+kable(medidas1, digits = 4, caption="Medidas Descritivas para o Número de Enfermeiros")
+```
+
+Pelo boxplot, nota-se que existem alguns valores extremos (*outliers*) e que a mediana da distribuição é próxima de 100 enfermeiros. A assimetria à direita observada no histograma e no ramo e folhas é confirmada tanto pelo boxplot como pelos coeficientes de assimetria de Pearson (Ap) e quartil de assimetria (Aq), que são ambos positivos.  
+Além disso, a mediana tem um valor de 115 e a média de 158.7. O coeficiente de variação de 0.89 mostra que existe bastante variabilidade nos dados.
+
+``` {r echo=FALSE}
+#Gráfico resposta vs explicativa x11
+plot(amostra$X10~amostra$X11, main="Relação entre o Percentual de Serviços Fornecidos pelo Hospital
+     e o Número de Enfermeiros", xlab="% de Serviços", ylab="Número de Enfermeiros", cex.main=0.8)
+```
+
+Com uma primeira visualização da relação entre o número de enfermeiros e o percentual de serviços fornecidos, percebe-se que existe uma correlação, mas que há um indício de uma curva nos pontos. Isso já é uma evidência a favor da hipótese 1, a qual sugere o modelo de segunda ordem para relacionar essas duas variáveis.
+
+``` {r echo=FALSE}
+#Gráfico resposta vs explicativa x8
+boxplot(amostra$X10~x8[indices], main="Relação entre a Região do Hospital e o Número de Enfermeiros", xlab="Região", ylab="Número de Enfermeiros", col="turquoise3", cex.main=1)
+```
+
+Analisando agora a distribuição do número de enfermeiros nos hospitais por região, nota-se que a variabilidade é maior na região S e menor na W.  
+Além disso, a região S é a única que não apresenta *outliers*.  
+Também é possível visualizar que a região NE apresenta assimetria à esquerda, o que contraria o padrão percebido nas demais regiões. Isso é perceptível pela distância entre a mediana e o primeiro quartil.
+
+```{r echo=FALSE}
+#Investigando a relação de x10 com x8 e com x11
+amostra$X12 <- amostra$X11^2
+plot(amostra$X10~amostra$X12, main="Relação entre o Quadrado do Percentual de Serviços Fornecidos pelo Hospital
+     e o Número de Enfermeiros", xlab="Quadrado do % de Serviços", ylab="Número de Enfermeiros", cex.main=0.8) #mais linear
+```
+
+Utilizando a variável X12, que representa $X11^2$, vemos maior linearidade na correlação com a variável resposta (X10). Dessa forma, será utilizada no modelo a variável X12, como alternativa a um modelo de segunda ordem para X11.
+
+```{r echo=FALSE}
+#Checando correlação entre as variáveis dessa hipótese
+cor2 <- cor(amostra[,c(11, 13:16)])
+kable(cor2, digits = 4, caption="Coeficientes de Correlação entre as Variáveis do Modelo")
+plot(amostra[,c(11, 13:16)], main="Associação entre as Variáveis do Modelo", col="olivedrab")
+```
+
+Tendo selecionado as variáveis *dummy* XNE, XNC e XS (para regiões) e a variável X12 como explicativas e a X10 como resposta, já é possível propor o modelo inicial.
+
+### Seleção do Modelo Inicial
+
+```{r echo=FALSE}
+#Ajustando o modelo
+modcomp<-lm(amostra$X10~amostra$X12+amostra$XNE+amostra$XNC+amostra$XS)
+anova(modcomp)
+summary(modcomp)
+```
+Pela estatística F e seu p-valor menor do que 0,05, conclui-se que, de fato, há regressão.  
+De acordo com os resultados do modelo, um aumento unitário na variável X12 (quadrado do percentual de serviços fornecidos) resulta em um aumento médio de 0.08 no número de enfermeiros.  
+Em relação ao número de enfermeiros nos hospitais da região W, há uma diminuição média de aproximadamente 40 enfermeiros na região NE e 20 enfermeiros na região NC. Em contrapartida, ao passar da região W para a região S, há um aumento de 22 enfermeiros em média.  
+
+### Diagnóstico do Modelo
+
+```{r echo=FALSE}
+#Análise de resíduos
+##grafico de residuos x valores ajustados
+plot(modcomp$fitted.values,modcomp$residuals, main="Resíduos do Modelo vs Valores Ajustados", xlab="Valores Ajustados", ylab="Resíduos")
+abline(h=0)
+##grafico de residuos x variveis
+plot(amostra$X10,modcomp$residuals, main="Resíduos do Modelo vs Número de Enfermeiros", xlab="Número de Enfermeiros", ylab="Resíduos")
+abline(h=0, col="olivedrab")
+plot(amostra$X12,modcomp$residuals, main="Resíduos do Modelo vs Quadrado do Percentual
+     de Serviços Fornecidos pelo Hospital", xlab="Quadrado do % de Serviços", ylab="Resíduos", cex.main=0.8)
+abline(h=0)
+
+##grafico de residuos de sequencia
+plot(modcomp$residuals, main="Resíduos do Modelo em Sequência", xlab="ID", ylab="Resíduos")
+```
+
+Os gráficos residuais apresentam evidências de heterocedasticidade, por causa da mudança na variabilidade dos resíduos com o aumento dos valores ajustados, ou das variáveis explicativas, etc.
+
+``` {r echo=FALSE}
+##gráfico de quantis normais
+qqnorm(modcomp$residuals, main="Gráfico de Quantis Normais", xlab="Quantis Teóricos", ylab="Resíduos")
+qqline(modcomp$residuals)
+```
+
+Pelo qqplot, observa-se maiores indícios de não normalidade dos resíduos e, consequentemente, da variável resposta.
+
+```{r echo=FALSE}
+#Teste para heterocedasticidade
+bptest(modcomp)
+```
+
+Realizado o teste de Breusch-Pagan para verificação da homocedasticidade, rejeita-se a hipótese nula, com uma estatística qui-quadrado de 29,47, e portanto, conclui-se que a variância não é constante.
+
+### Medidas Corretivas
+
+Devido à heterocedasticidade e à falta de normalidade da distribuição do número de enfermeiros — pressupostos do modelo — foi necessária a adoção de uma medida corretiva. Para isso, a estratégia escolhida foi a da aplicação do logaritmo na variável resposta, técnica que possui o potencial de solucionar ambos os problemas.
+
+```{r echo=FALSE}
+#Medida corretiva: aplicação de log em x10
+#Corrige heterocedasticidade e falta de normalidade de x10
+amostra$lnX10<-log(amostra$X10)
+#Verificando normalidade
+hist(amostra$lnX10, nclass=20, main="Distribuição do Logaritmo do Número de Enfermeiros nos Hospitais", xlab="Log do Número de Enfermeiros", ylab="Frequência", col="turquoise3", cex.main=1)
+#Correlação
+cor3 <- cor(amostra[,c(17, 13:16)])
+kable(cor3, digits = 4, caption="Coeficientes de Correlação entre as Variáveis do Modelo Corrigido")
+```
+
+O histograma acima indica que houve, de fato, uma redução na assimetria à direita que a variável resposta apresentava anteriormente.
+
+```{r echo=FALSE}
+# Ajustando novo modelo
+modcompTl<-lm(amostra$lnX10~amostra$XNC+amostra$XNE+amostra$XS+amostra$X12)
+summary(modcompTl)
+anova(modcompTl)
+```
+
+De acordo com os resultados do novo modelo, um aumento unitário na variável X12 (quadrado do percentual de serviços fornecidos) resulta em um aumento médio de 0.00045 no log de X10.  
+Em relação ao log do número de enfermeiros nos hospitais da região W, há uma diminuição média de aproximadamente 0.079 na região NE. Por outro lado, ao passar da região W para a região NC, há um aumento médio de 0.074 e para a região S, o aumento médio é de 0.12.
+
+```{r echo=FALSE}
+#Análise de resíduos para o novo modelo
+plot(modcompTl$fitted.values,modcompTl$residuals, main="Resíduos do Modelo Corrigido vs Valores Ajustados", xlab="Valores Ajustados", ylab="Resíduos")
+abline(h=0)
+plot(modcompTl$residuals, main="Resíduos do Modelo Corrigido em Sequência", xlab="ID", ylab="Resíduos")
+```
+
+Como esperado, os gráficos residuais não mais indicam heterocedasticidade, uma vez que os pontos agora se apresentam espalhados de forma aleatória pelo diagrama.
+
+``` {r echo=FALSE}
+#Gráficos de quantis normais
+qqnorm(modcompTl$residuals, main="Gráfico de Quantis Normais", xlab="Quantis Teóricos", ylab="Resíduos")
+qqline(modcompTl$residuals)
+```
+
+Observa-se que, com a aplicação do log, há maior adesão à distribuição normal.
+
+### Validação do Modelo
+
+Será utilizada a amostra de validação composta pelos 56 hospitais remanescentes.
+
+```{r echo=FALSE}
+#Preparando a amostra de validação
+amostra_validacao$X12 <- amostra_validacao$X11^2
+amostra_validacao$lnX10<-log(amostra_validacao$X10)
+```
+
+```{r echo=FALSE}
+#Correlação para a amostra de validação
+cor4 <- cor(amostra_validacao[,c(17, 13:16)])
+kable(cor4, digits = 4, caption="Coeficientes de Correlação entre as Variáveis na Amostra de Validação")
+```
+
+Os coeficientes de correlação estão próximos ao que eram na amostra anterior. Permanece a forte correlação entre o quadrado do percentual de serviços fornecidos e o log do número de enfermeiros.
+
+```{r echo=FALSE}
+# Ajustando modelo pela amostra de validação
+modcompTl_val<-lm(amostra_validacao$lnX10~amostra_validacao$XNC
+                  +amostra_validacao$XNE+amostra_validacao$XS
+                  +amostra_validacao$X12)
+summary(modcompTl_val)
+```
+
+Tendo construído o mesmo modelo, mas a partir da amostra de validação, é possível comparar esses resultados aos já obtidos.  
+Observando os valores das estimativas dos coeficientes de regressão, nota-se que permanecem próximos do zero, com valores similares aos encontrados anteriormente.
+
+```{r echo=FALSE}
+#Predição da resposta na amostra de validação a partir do modelo criado pela
+#amostra de treinamento
+ajustados <- 3.72+0.074*amostra_validacao$XNC-0.079*amostra_validacao$XNE+
+  0.118*amostra_validacao$XS+0.00045*amostra_validacao$X12
+```
+
+```{r echo=FALSE}
+#Erro quadrático médio
+kable(sum((ajustados-amostra_validacao$lnX10)^2)/56, digits = 4, col.names = "MSPR")
+```
+
+Como segunda etapa de validação, ajustou-se o modelo construído pela amostra de treinamento aos dados da amostra de validação. A partir das predições obtidas, foi calculado o erro quadrático médio que resultou em 0.32, valor próximo ao MSE do modelo (0.23).  
+Com isso, conclui-se que há um bom ajustamento do modelo formulado.
+
+### Modelo Final
+
+Tendo validado o modelo construído, utiliza-se a amostra completa para a formulação do modelo final.
+
+```{r echo=FALSE}
+#Preparando os dados para o modelo final
+dados_hosp$X12 <- dados_hosp$X11^2
+dados_hosp$lnX10<-log(dados_hosp$X10)
+#Ajustando o modelo final
+modfinal<-lm(dados_hosp$lnX10~dados_hosp$XNC+dados_hosp$XNE+dados_hosp$XS+dados_hosp$X12)
+summary(modfinal)
+anova(modfinal)
+```
+
+## Hipótese 2
+
+*A duração da internação está associada a características do paciente, do seu tratamento e do hospital.*
+
+### Seleção de Variáveis
+
+A variável resposta a ser investigada é a duração da internação (X1).  
+Antes de montar o modelo de regressão para o estudo, é necessária a etapa de seleção de variáveis, para que possam ser escolhidas as características que influenciam mais na resposta.
+
+```{r echo=FALSE}
+#Seleção exaustiva
+sele1<-regsubsets(X1~.,data=amostra[, -c(1, 9, 16, 17)], nbest=10, really.big=TRUE)
+
+n_parametros<-as.numeric(rownames(summary(sele1)$which))+1
+
+#Critério R^2
+plot(n_parametros,summary(sele1)$rsq, main="Critério R2", xlab="Número de Parâmetros", ylab="R2")
+
+#Critério R^2 ajustado
+plot(n_parametros,summary(sele1)$adjr2, main="Critério R2 Ajustado", xlab="Número de Parâmetros", ylab="R2 Ajustado")
+
+#Critério Cp
+plot(n_parametros,summary(sele1)$cp, main="Critério Cp", xlab="Número de Parâmetros", ylab="Cp")
+plot(n_parametros, summary(sele1)$cp, ylim=c(0, 10), main="Critério Cp Ampliado", xlab="Número de Parâmetros", ylab="Cp")
+abline(h=6)
+
+#Melhor modelo: X3, X9 e variáveis de região (Cp=6.19)
+```
+
+### Modelo com 6 parâmetros 
+
+A partir dos gráficos para o $R^2$ e o $R^2 ajustado$, percebe-se que modelos com 6 parâmetros seriam uma escolha plausível, já que os valores para essas duas medidas são altos, mas a quantidade de variáveis nos modelos não seria tão grande.  
+Analisando o gráfico do Cp, chega-se à mesma conclusão. Além disso, observando mais de perto os modelos de 6 parâmetros, localiza-se o que possui o Cp mais próximo do número de parâmetros. Esse modelo inclui as variáveis explicativas X3, X9, XNC, XNE e XS.
+
+### Análise Exploratória
+
+```{r echo=FALSE}
+#Investigação inicial
+cor5 <- cor(amostra[,c(2, 4, 10, 13:15)])
+kable(cor5, digits = 4, caption="Coeficientes de Correlação entre as Variáveis do Modelo")
+plot(amostra[,c(2, 4, 10, 13:15)], main="Associação entre as Variáveis do Modelo", col="olivedrab")
+```
+
+Em geral, as variáveis explicativas selecionadas parecem ter uma correlação moderada com a duração de internação.  
+Olhando para a distribuição da variável resposta:
+
+```{r echo=FALSE}
+#Gráficos para a variável Resposta
+stem(amostra$X1)
+hist(amostra$X1, main="Distribuição do Tempo de Internação", xlab="Duração da Internação", ylab="Frequência", col="turquoise3")
+```
+
+Pelos gráficos acima, é possível notar que a distribuição da variável resposta possui comportamento semelhante ao de uma distribuição normal.
+
+```{r echo=FALSE}
+#Medidas descritivas para a variável resposta
+boxplot(amostra$X1, main="Distribuição do Tempo de Internação", ylab="Duração da Internação", col="turquoise3")
+medidas2 <- amostra%>%
+summarize(media=mean(X1), q1=quantile(X1, 0.25),
+mediana=median(X1), q3=quantile(X1, 0.75), q4=max(X1),
+amplitude=max(X1)-min(X1), iiq=IQR(X1), variancia=var(X1),
+dp=sd(X1), cv=sd(X1)/mean(X1), Ap=3*(media-mediana)/dp,
+Aq=((q3-mediana)-(mediana-q1))/iiq,
+k=(q3-q1)/(2*(quantile(X10, 0.9)-quantile(X10, 0.1))))
+kable(medidas2, digits=4, caption="Medidas Descritivas para o Tempo de Internação")
+```
+
+Pelo boxplot, nota-se que existem dois *outliers* e que a mediana da distribuição é
+próxima de 9 dias. Os coeficientes de assimetria de Pearson (Ap) e quartil de assimetria (Aq) são próximos de zero, ratificando a evidência de simetria da distribuição.  
+Além disso, a mediana tem um valor de 9.44 e a média de 9.41, valores próximos um do outro devido à simetria já mencionada. O coeficiente de variação de 0.16 mostra
+que existe relativamente pouca variabilidade nos tempos de internação.
+
+```{r echo=FALSE}
+#Gráfico resposta vs explicativa x3
+plot(amostra$X1~amostra$X3, main="Relação entre Tempo de Internação e Risco de Infecção", xlab="Risco de Infecção (%)", ylab="Duração de Internação")
+```
+
+Analisando graficamente a relação entre as variáveis X1 e X3, nota-se que para pacientes com baixo risco de infecção, a duração de internação é menor. Já para pacientes com risco em torno de 6%, esse tempo aumenta.
+
+```{r echo=FALSE}
+#Gráfico resposta vs explicativa x8
+boxplot(amostra$X1~x8[indices], main="Relação entre Tempo de Internação e Região", xlab="Região", ylab="Duração de Internação", col="turquoise3")
+```
+
+É evidente que o tempo de internação dos pacientes varia de acordo com a região em que o hospital se encontra. Na região NE, as internações são mais longas (em torno de 11 dias), enquanto na região W são mais curtas (em torno de 8 dias).
+
+```{r echo=FALSE}
+#Gráfico resposta vs explicativa x9
+plot(amostra$X1~amostra$X9, main="Relação entre Tempo de Internação e Média Diária de Pacientes", xlab="Média Diária de Pacientes", ylab="Duração de Internação", cex.main=1)
+```
+
+O diagrama acima indica que existe uma relação positiva entre o número médio de pacientes por dia no hospital e o tempo de internação, principalmente para hospitais com média de 100 a 300 pacientes diários.
+
+### Seleção do Modelo Inicial
+
+```{r echo=FALSE}
+#Ajustando o modelo
+modh2<-lm(amostra$X1~amostra$X3+amostra$X9+amostra$XNE+amostra$XNC+amostra$XS)
+anova(modh2)
+summary(modh2)
+```
+
+Pela estatística F e seu p-valor menor do que 0,05, conclui-se que, de fato, há regressão.
+De acordo com os resultados do modelo, um aumento de 1% no risco de infecção resulta em um aumento médio de 0.28 no tempo de duração da internação.
+Em relação ao tempo de internação nos hospitais da região W, há um aumento médio de aproximadamente 2.17 dias na região NE e 1.26 dias na região NC. Ao passar da região W para a região S, há um aumento de 0.39 na resposta média.
+
+### Diagnóstico do Modelo
+
+```{r echo=FALSE}
+#Análise de resíduos
+##grafico de residuos x valores ajustados
+plot(modh2$fitted.values,modh2$residuals, main="Resíduos do Modelo com 6 Parâmetros", xlab="Valores Ajustados", ylab="Resíduos")
+abline(h=0)
+##grafico de residuos x varivel resposta
+plot(amostra$X1,modh2$residuals, main="Resíduos do Modelo com 6 Parâmetros", xlab="Duração da Internação", ylab="Resíduos")
+abline(h=0)
+##grafico de residuos x varivel explicativa X3
+plot(amostra$X3,modh2$residuals, main="Resíduos do Modelo com 6 Parâmetros", xlab="Risco de Infecção (%)", ylab="Resíduos")
+abline(h=0)
+##grafico de residuos x varivel explicativa X9
+plot(amostra$X9,modh2$residuals, main="Resíduos do Modelo com 6 Parâmetros", xlab="Média Diária de Pacientes", ylab="Resíduos")
+abline(h=0)
+##grafico de residuos de sequencia
+plot(modh2$residuals, main="Resíduos do Modelo com 6 Parâmetros em Sequência", xlab="ID", ylab="Resíduos")
+```
+
+De modo geral, os gráficos residuais não apontam descumprimento dos pressupostos do modelo. Apenas no diagrama dos resíduos vs a variável resposta, destacam-se os *outliers* já mencionados da distribuição de X1.
+
+```{r echo=FALSE}
+##gráfico de quantis normais
+qqnorm(modh2$residuals, main="Gráfico de Quantis Normais", xlab="Quantis Teóricos", ylab="Resíduos")
+qqline(modh2$residuals)
+```
+
+O gráfico dos quantis normais também indica ajuste à distribuição normal.
+
+```{r echo=FALSE}
+#Teste para heterocedasticidade
+bptest(modh2)
+```
+
+O teste de Breusch-Pagan resultou em um p-valor elevado (0.267). Sendo assim, não é possível descartar a hipótese de homocedasticidade.
+
+### Validação do Modelo
+
+```{r echo=FALSE}
+#Correlação para a amostra de validação
+cor6 <-cor(amostra_validacao[,c(2, 4, 10, 13:15)])
+kable(cor6, digits = 4, caption="Coeficientes de correlação entre as Variáveis do Modelo na Amostra de Validação")
+```
+
+Os coeficientes de correlação para o modelo ajustado aos dados de validação continuam apresentando associação moderada para a maioria das variáveis explicativas.
+
+```{r echo=FALSE}
+# Ajustando modelo pela amostra de validação
+modh2_val<-lm(amostra_validacao$X1~amostra_validacao$X3+amostra_validacao$X9+
+                amostra_validacao$XNE+amostra_validacao$XNC+amostra_validacao$XS)
+summary(modh2_val)
+```
+
+Em geral, as estimativas dos coeficientes de regressão estão próximas aos valores encontrados no modelo de treinamento. A exceção é a variável indicadora da região S, cujo coeficiente era originalmente igual a 0.39 e agora foi estimado como 1.69.
+
+```{r echo=FALSE}
+#Predição da resposta na amostra de validação a partir do modelo criado pela
+#amostra de treinamento
+ajustados2 <- 6.54+ 1.26*amostra_validacao$XNC+2.17*amostra_validacao$XNE+
+  0.39*amostra_validacao$XS+0.28*amostra_validacao$X3+0.0035*amostra_validacao$X9
+```
+
+```{r echo=FALSE}
+#Erro quadrático médio
+kable(sum((ajustados2-amostra_validacao$X1)^2)/56, digits = 4, col.names = "MSPR")
+```
+
+Ao comparar o erro quadrático médio (2.95) ao quadrado médio do erro do modelo de treinamento (1.02), percebe-se que houve um aumento no seu valor. Com isso, conclui-se que 2.95 provavelmente será uma melhor estimativa do erro de predição do modelo quando este for aplicado a outros dados futuramente.
+
+### Modelo Final
+
+Agora, será utilizada a amostra completa dos 113 hospitais para a formulação do modelo final.
+
+```{r echo=FALSE}
+#Ajustando o modelo final
+modfinal2<-lm(dados_hosp$X1~dados_hosp$X3+dados_hosp$X9+dados_hosp$XNC+dados_hosp$XNE+
+                dados_hosp$XS)
+summary(modfinal2)
+```
+
+### Modelo com 5 parâmetros 
+
+Um segundo modelo, agora com 5 parâmetros, foi selecionado para fins de análise. Essa seleção foi feita ao se avaliar conjuntamente o $R^2$, o $R^2 ajustado$ e o Cp. Inclui as variáveis explicativas X3, X9, XNC, XNE.
+
+### Seleção do Modelo Inicial
+
+```{r echo=FALSE}
+#segundo modelo: X3, X9, XNE e XNC (r^2=0,599 | r^2 adj = 0,56 | cp = 5)
+#Ajustando o modelo
+modh2_2<-lm(amostra$X1~amostra$X3+amostra$X9+amostra$XNE+amostra$XNC)
+anova(modh2_2)
+summary(modh2_2)
+```
+Pela estatística F e seu p-valor menor do que 0,05, conclui-se que, de fato, há regressão.  
+De acordo com os resultados do modelo, um aumento de 1% no risco de infecção resulta em um aumento médio de 0.26 no tempo de duração da internação. Já um aumento de 1 paciente na média diária do hospital causa um aumento de 0.004 na média da variável resposta.  
+Em relação ao tempo de internação nos hospitais da região W, há um aumento médio de aproximadamente 1.95 dias na região NE e 1.03 dias na região NC.  
+
+### Diagnóstico do Modelo
+
+```{r echo=FALSE}
+#Análise de resíduos
+##grafico de residuos x valores ajustados
+plot(modh2_2$fitted.values,modh2_2$residuals, main="Resíduos do Modelo com 5 Parâmetros", xlab="Valores Ajustados", ylab="Resíduos")
+abline(h=0)
+##grafico de residuos x varivel resposta
+plot(amostra$X1,modh2_2$residuals, main="Resíduos do Modelo com 5 Parâmetros", xlab="Duração da Internação", ylab="Resíduos")
+abline(h=0)
+##grafico de residuos x varivel explicativa X3
+plot(amostra$X3,modh2_2$residuals, main="Resíduos do Modelo com 5 Parâmetros", xlab="Risco de Infecção (%)", ylab="Resíduos")
+abline(h=0)
+##grafico de residuos x varivel explicativa X9
+plot(amostra$X9,modh2_2$residuals, main="Resíduos do Modelo com 5 Parâmetros", xlab="Média Diária de Pacientes", ylab="Resíduos")
+abline(h=0)
+##grafico de residuos de sequencia
+plot(modh2_2$residuals, main="Resíduos do Modelo com 5 Parâmetros em Sequência", xlab="ID", ylab="Resíduos")
+```
+
+De maneira geral, os gráficos residuais parecem respeitar os pressupostos do modelo (normalidade, heterocedasticidade, etc). 
+
+```{r echo=FALSE}
+##gráfico de quantis normais
+qqnorm(modh2_2$residuals, main="Gráfico de Quantis Normais", xlab="Quantis Teóricos", ylab="Resíduos")
+qqline(modh2_2$residuals)
+shapiro.test(modh2_2$residuals)
+```
+
+E novamente, o gráfico indica um bom ajustamento à distribuição normal, evidência que pode ser confirmada com o teste de Shapiro-Wilk.  
+Outra suposição que deve-se verificar é se há a homogeneidade de variâncias:  
+
+```{r echo=FALSE}
+#Teste para heterocedasticidade
+bptest(modh2_2)
+```
+
+Assim como para o pressuposto de normalidade, com o teste de Breusch-Pagan não existem evidências para rejeitar a hipótese nula. Isto é, existe homocedasticidade.  
+
+### Validação do Modelo
+
+```{r echo=FALSE}
+# Ajustando modelo pela amostra de validação
+modh2_2val<-lm(amostra_validacao$X1~amostra_validacao$X3+amostra_validacao$X9+
+                amostra_validacao$XNE+amostra_validacao$XNC)
+summary(modh2_2val)
+```
+```{r echo=FALSE}
+#Predição da resposta na amostra de validação a partir do modelo criado pela
+#amostra de treinamento
+ajustados2_2 <- 5.897412-0.006055*amostra_validacao$XNC+1.542481*amostra_validacao$XNE+
+  0.632705*amostra_validacao$X3+0.003857*amostra_validacao$X9
+```
+
+```{r echo=FALSE}
+#Erro quadrático médio
+kable(sum((ajustados2_2-amostra_validacao$X1)^2)/56, digits = 4, col.names = "MSPR")
+```
+
+Ao comparar o erro quadrático médio (2.51) ao quadrado médio do erro do modelo de treinamento (1.01), percebe-se que houve um aumento no seu valor. Então, assim como para o modelo com 6 parâmetros, conclui-se, que 2.51 provavelmente será uma melhor estimativa do erro de predição do modelo quando este for aplicado a outros dados futuramente.
+
+### Modelo Final
+
+Agora, será utilizada a amostra completa dos 113 hospitais para a formulação do modelo final de 5 parâmetros.
+
+```{r echo=FALSE}
+#Ajustando o modelo final
+modfinal2_2<-lm(dados_hosp$X1~dados_hosp$X3+dados_hosp$X9+dados_hosp$XNC+dados_hosp$XNE)
+summary(modfinal2_2)
+```
+
+
+
+# Conclusão
+
+Em relação à primeira hipótese levantada, foi selecionado o seguinte modelo:
+
+$$ \widehat{log(X_{10i})} = 3.739+0.047X_{NCi}+0.086X_{NEi}+0.074X_{Si}+0.0005X^2_{11i}$$
+Com isso, conclui-se que o percentual de serviços fornecidos pelo hospital está relacionado com o número de enfermeira(o)s através de um modelo de segundo grau, conforme a hipótese. Além disso, o número de enfermeira(o)s varia conforme a região.  
+Como a aplicação do logaritmo foi usada como medida corretiva para garantir a normalidade e heterocedasticidade dos dados, os coeficientes de regressão do modelo tiveram seus valores reduzidos, ficando próximos de zero.
+
+Em relação à segunda hipótese, foram selecionados 2 modelos:
+
+$$ \widehat{X_{1i}} = 5.413+0.517X_{3i}+0.003X_{9i}+1.282X_{NCi}+ 2.441X_{NEi}+1.097X_{Si}$$
+
+$$ \widehat{X_{1i}} = 6.301+0.468X_{3i}+0.004X_{9i}+ 0.515X_{NCi}+1.696X_{NEi}$$
+
+Foi descoberto que as variáveis de maior influência sobre a duração das internações são a região, o risco de infecção do paciente e a média diária de pacientes do hospital. 

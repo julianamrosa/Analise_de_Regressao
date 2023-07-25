@@ -1,0 +1,656 @@
+---
+titulo: "Análise de Dados Categorizados"
+subtitulo: "Trabalho Final"
+aluno1:  "Carolina Musso 18/0047850"
+aluno2: "Juliana Magalhães Rosa 18/0020935"
+orientador: "Maria Teresa Leão"
+ano: "1/2023"
+referencias: auxiliar/referencias.bib
+output: 
+  bookdown::pdf_document2:
+    template: auxiliar/template.tex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+                      warning = FALSE,
+                      message = FALSE)
+```
+
+```{r bibliotecas, include=FALSE}
+
+#rm(list = ls()) #will clear all objects includes hidden objects.
+#options(rstudio.help.showDataPreview = FALSE)
+# Carregando bibliotecas ---------
+pacman::p_load(tidyverse, dplyr, rio, papeR, patchwork, 
+               kableExtra, pROC, ExhaustiveSearch, scales,
+               sjPlot, sjmisc, performance,lmtest, stringr)
+
+
+# Bases -----
+
+dados <- import ("data/dados_trabalho.xlsx")
+
+# amostra
+set.seed(42)
+amostra <- slice_sample(dados, n=100)
+
+## Tratamento ----
+
+names(amostra) <- c("ID", "idade", "status", "casa", "setor", "save" )
+
+amostra_trat <- amostra %>% 
+  mutate(status=factor(status, 
+                       labels=c("Superior", "Medio", "Inferior")), 
+         casa=factor(casa, labels=c("Nao", "Sim")), 
+         setor=factor(setor, levels=c(1,0), labels=c("B", "A")),
+        save=factor(save, labels=c("Nao", "Sim"))) %>% 
+  as.data.frame()
+```
+
+\newpage
+
+# Introdução e Objetivos
+
+A habilidade e a possibilidade de poupar dinheiro pode estar relacionada a diversos fatores. \citeonline{economics}  cita a idade, o poder aquisitivo, o desenvolvimento econômico e a inflação como possíveis questões associadas. 
+
+Este trabalho visa avaliar fatores associados à posse de conta poupança por parte de pacientes de uma rede hospitalar. Isso será feito por meio da seleção de um modelo de regressão logística. 
+
+# Metodologia
+
+
+## Variáveis 
+
+A variável resposta analisada nesse estudo é qualitativa nominal binária, "Conta popuança". 
+
+As variáveis explicativas (ou os fatores possivelmente associados) são:
+
+- Idade: variável quantitativa discreta medida em anos;
+
+- Status socioeconômico: variável qualitativa ordinal medida em 1 = superior, 2 = médio , 3 = inferior;
+
+- Possui casa própria: variável qualitativa nominal binária, medida em 1 = não ou sim, mas ainda pagando financiamento e 2= sim e quitada;
+
+- Setor da cidade: variável qualitativa nominal medida em 1 = setor A; 0= setor B.
+
+
+## Amostra
+
+Para este trabalho, uma sub-amostra aleatória simples sem reposição de tamanho 100 foi selecionada a partir de uma amostra de 196 pacientes. Os IDS sorteados foram: 2, 3, 4, 5, 6, 9, 13, 16, 18, 20, 21, 24, 27, 29, 32, 33, 35, 36, 40, 41, 42, 43, 47, 49, 53, 54, 55, 57, 58, 60, 65, 68, 69, 71, 73, 74, 76, 80, 81, 82, 83, 85, 89, 91, 92, 99, 100, 101, 102, 103, 104, 109, 110, 111, 113, 114, 115, 116, 118, 122, 128, 129, 130, 131, 134, 135, 136, 137, 138, 140, 143, 144, 146, 150, 153, 154, 158, 161, 162, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 179, 180, 182, 183, 184, 185, 187, 191, 192, 194, 196.
+
+```{r include=FALSE}
+sort(amostra$ID)
+```
+
+## Análise
+
+A regressão logística é um modelo estatístico utilizado para casos em que a variável resposta é categorizada. O mais comum é que essa variável seja binária, como é o caso do presente estudo. O funcionamento dessa técnica consiste em descrever a probabilidade de ocorrência de um evento, que nesse caso será a posse de poupança.
+
+Assim,  modela-se a média da variável resposta a partir da função Logística:
+
+$$\pi(x_i) = \frac{exp{(\beta_0 + \beta_1 x_{i1}+...+\beta_{k-1}x_{i(k-1)})}}{1+exp{(\beta_0 + \beta_1 x_{i1}+...+\beta_{k-1}x_{i(k-1)})}}$$
+onde $x_i$ é um vetor com os elementos $x_{ij}$, os quais representam possíveis valores das variáveis explicativas $X_j$; $\beta_j$ é um parâmetro regressivo; $k$ é o número de parâmetros do modelo com $j=0, 1, 2,...,k-1$.
+
+\newpage
+# Resultados
+
+## Análise Descritiva: Gráficos
+
+
+### Distribuição de Idades dos Pacientes
+
+Na Figura 1, podemos observar a distribuição das idades em cada grupo de interesse, ou seja, aqueles que possuem ou não uma poupança. Notamos que o grupo sem poupança tende a ser composto por pessoas mais jovens, com uma mediana abaixo de 20 anos, enquanto aqueles com poupança apresentam uma mediana acima de 20 anos, chegando a valores próximos de 60 anos. Ao analisarmos a amostra como um todo, observamos que a idade mediana é ligeiramente superior a 20 anos e existem pessoas mais velhas que chegam a ser consideradas *outliers* nas idades.
+
+```{r}
+idade_by <- amostra_trat %>% 
+  ggplot(aes(x=save, y=idade, fill=save))+
+   geom_boxplot()+
+   scale_fill_manual(values=c( "#0068B4", "#00822E"))+
+   #geom_jitter(color="black", size=0.4, alpha=0.9) +
+   theme_classic(base_size = 14)+
+   theme(legend.position = "none")+
+   labs(x= "Possui Poupanca", y= "Idade (anos)")
+   
+
+
+idade <- amostra_trat %>% 
+   ggplot(aes(y=idade))+
+   geom_boxplot()+
+  #geom_jitter( color="black", size=0.4, alpha=0.9) +
+  theme_classic(base_size = 10)+
+   theme(legend.position = "none", 
+         axis.text.x = element_blank(), 
+         axis.ticks = element_blank(),
+         axis.line.x = element_blank(),
+          axis.line.y = element_blank(),
+         panel.border = element_rect(colour = "black", fill=NA))+
+   labs(x= "", y= "")+
+  ggtitle("Geral")
+
+ 
+ box_idade <-  idade_by +  inset_element(idade, left = 0.01, bottom = 0.45, right = 0.25, top = 1)
+
+ ggsave(plot=box_idade, filename = "img/idade.png")
+```
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.8]{img/idade.png}
+    \caption{Diagrama de caixas para distribuição de idade entre os grupos sem (azul) e com (verde) poupança. Para comparação, a distribuiçao de idade geral foi adicionada no canto superior esquerdo.}
+    \label{fig:idade}
+\end{figure}
+
+
+
+### Proporção de Pacientes nos Status Socioeconômicos
+
+Ao analisarmos a amostra por grupo, levando em consideração a proporção de pessoas em diferentes níveis de status econômico (ver Figura \ref{fig:status}), notamos que o grupo sem poupança apresenta uma maior proporção de pessoas com status econômico inferior em relação ao esperado na amostra total (representado no subgráfico "Geral"). Além disso, o grupo com poupança tende a ser composto por pessoas com uma maior proporção de status econômico superior.
+
+```{r}
+status_by <- amostra_trat %>% 
+  ggplot(aes(x=save,fill=factor(status)))+
+   geom_bar(position="fill", color="black")+
+   scale_fill_manual(values=c("#0068B4", "#7E7E65",  "#00822E"))+
+   #geom_jitter(color="black", size=0.4, alpha=0.9) +
+   theme_classic(base_size = 14)+
+   theme(legend.position = "none")+
+   labs(x= "Possui Poupanca", y= "Proporcao")
+   
+
+
+status <-   amostra_trat %>% 
+  ggplot(aes(x=1,fill=factor(status)))+
+  geom_bar(position="fill", color="black")+
+  scale_fill_manual("Status",values=c("#0068B4", "#7E7E65", "#00822E"))+
+  theme_classic(base_size = 14)+
+  theme( axis.text.x = element_blank(),
+        axis.ticks = element_blank())+
+  labs(x= "", y= "", title="Geral")
+
+ bar_plot_status <- status_by +  status +   plot_layout(widths = c(2, 1))
+ 
+ ggsave(plot= bar_plot_status, filename = "img/status.png")
+```
+
+
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.8]{img/status.png}
+    \caption{Proporção de pessoas com status Superior (verde), Médio (cinza) e Inferior (verde) para cada grupo (com ou sem poupança). Para comparação, a distribuiçao proporções geral foi adicionada ao lado direito.}
+    \label{fig:status}
+\end{figure}
+
+### Proporção de Pacientes com Casa Própria Quitada
+
+
+Analisando a amostra por grupo, com base na proporção de pessoas que possuem ou não casa própria quitada (Figura \ref{fig:setor}), podemos observar que o grupo sem poupança apresenta uma proporção menor de pessoas com casa quitada em comparação ao grupo com poupança. De maneira geral, na amostra como um todo, constata-se que mais de 50% das pessoas não possuem casa própria quitada.
+
+```{r}
+casa_by <- amostra_trat %>% 
+  ggplot(aes(x=save,fill=factor(casa)))+
+   geom_bar(position="fill", color="black")+
+   scale_fill_manual("", values=c( "#0068B4", "#00822E"))+
+   #geom_jitter(color="black", size=0.4, alpha=0.9) +
+   theme_classic(base_size = 14)+
+   theme(legend.position = "none")+
+   labs(x= "Possui Poupanca", y= "Proporcao")
+   
+
+
+casa<-   amostra_trat %>% 
+  ggplot(aes(x=1,fill=factor(casa)))+
+  geom_bar(position="fill", color="black")+
+  scale_fill_manual("Casa quitada", values=c( "#0068B4", "#00822E"))+
+  theme_classic(base_size = 14)+
+  theme(axis.text.x = element_blank(),
+        axis.ticks = element_blank())+
+  labs(x= "", y= "")+
+  ggtitle("Geral")
+
+bar_plot_casa <- casa_by +  casa +   plot_layout(widths = c(2, 1))
+ggsave(plot= bar_plot_casa, filename = "img/casa.png")
+```
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.8]{img/casa.png}
+    \caption{Proporção de pessoas com casa própria quitada (verde), ou sem casa própria/não quitada (azul) para cada grupo com ou sem poupança. Para comparação, a distribuiçao proporções geral foi adicionada ao lado direito.}
+    \label{fig:casa}
+\end{figure}
+
+
+### Proporção de Pacientes nos Setores da Cidade
+
+Ao analisarmos a amostra por grupo de acordo com a proporção de pessoas que residem no Setor A ou no Setor B (Figura \ref{fig:setor}), observamos que o grupo sem poupança possui uma proporção ligeiramente menor de residentes no Setor A em comparação com o grupo com poupança. De modo geral, na amostra como um todo, aproximadamente 75% das pessoas residem no Setor A.
+
+```{r}
+setor_by <- amostra_trat %>% 
+  ggplot(aes(x=save,fill=factor(setor)))+
+   geom_bar(position="fill", color="black")+
+   scale_fill_manual("", values=c( "#0068B4", "#00822E"))+
+   #geom_jitter(color="black", size=0.4, alpha=0.9) +
+   theme_classic(base_size = 14)+
+   theme(legend.position = "none")+
+   labs(x= "Possui Poupanca", y= "Proporcao")
+   
+
+
+setor <-   amostra_trat %>% 
+  ggplot(aes(x=1,fill=factor(setor)))+
+  geom_bar(position="fill", color="black")+
+  scale_fill_manual("Setor", values=c( "#0068B4", "#00822E"))+
+  theme_classic(base_size = 14)+
+  theme(axis.text.x = element_blank(),
+        axis.ticks = element_blank())+
+  labs(x= "", y= "")+
+  ggtitle("Geral")
+
+bar_plot_setor <- setor_by +  setor +   plot_layout(widths = c(2, 1))
+ggsave(plot= bar_plot_setor, filename = "img/setor.png")
+
+```
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.8]{img/setor.png}
+    \caption{Proporção de pessoas cque residem no setor A (verde) ou Setor B (azul),  para cada grupo com ou sem poupança. Para comparação, a distribuiçao proporções geral foi adicionada ao lado direito.}
+    \label{fig:setor}
+\end{figure}
+
+## Análise Descritiva: Tabelas
+
+Pela Tabela \@ref(tab:quali), nota-se que, ao avaliar as associações entre cada variável explicativa com a resposta separadamente, o status socioeconômico é o único atributo que apresenta associação significante com a posse de poupança.
+
+Os p-valores obtidos são do Teste Qui-Quadrado, o qual testa a independência entre as variáveis como hipótese nula.
+
+```{r}
+names(amostra_trat) <- c("ID", "Idade", "Status Socioeconomico", "Casa Propria", "Setor", "Poupanca" )
+
+```
+
+```{r}
+Tab1 <- papeR::summarize(amostra_trat[,-1],
+                 type = "factor", group = "Poupanca", test="chisq.test")
+
+names(Tab1 ) <- c("Variável", "Nível", "a", "N (não tem)", "% (não tem)", "b", "N (tem)", " % (tem)", "c", "p-valor")
+
+Tab1 <- Tab1 %>% as_tibble() %>% select(-c("a", "b", "c")) %>% 
+  mutate(`p-valor`= str_replace(`p-valor`, "<0.001", "0.0001"))
+
+
+```
+
+```{r quali}
+knitr::kable(Tab1,format="latex", booktabs = T, 
+        linesep="", 
+        align="c", caption= "Frequências relativas e absolutas das variáveis qualitativas por grupo Com ou Sem poupança. P-valor proveniente do teste de $\\chi^2$ de associação para cada variável.") %>% 
+  kable_styling(latex_options = "HOLD_position", position="center", 
+                full_width = F) %>% 
+  row_spec(c(3,5),hline_after = TRUE)
+```
+
+
+Já a Tabela \@ref(tab:num) indica associação significante entre idade e posse de poupança, com o p-valor obtido a partir do Teste de Wilcoxon para comparar a média das idades para os grupos com e sem poupança (hipótese nula é de que essas médias não diferem).
+
+
+```{r}
+Tab2 <- papeR::summarize(amostra_trat[,-1],
+                 type = "numeric", group = "Poupanca", test="wilcox.test")
+
+names(Tab2)<-c("Variável", "Tem popuança", "a", "N", "b", "Média", 
+               "DP", "c", "Min", "Q1", "Mediana", "Q3", "Max", "d", "p-valor")
+
+Tab2 <- Tab2 %>% as_tibble() %>% select(-c("a", "b", "c", "d")) %>% 
+  mutate(`p-valor`= str_replace(`p-valor`, "<0.001", "0.0001"))
+
+```
+
+
+```{r num}
+knitr::kable(Tab2,format="latex", booktabs = T, 
+        linesep="", 
+        align="c", caption= "Distribuição de idade grupo Com ou Sem poupança. P-valor proveniente do teste não paramétrico de Wilcoxon.") %>% 
+  kable_styling(latex_options = "HOLD_position", position="center", 
+                full_width = F)
+```
+
+
+
+## Modelagem 
+
+### Seleção de Variáveis
+
+A Figura 5 apresenta os modelos logísticos possíveis. Os três modelos destacados são os que possuem os menores valores para o AIC e incluem as variáveis idade e status como explicativas. Um dos modelos também inclui a posse de casa própria enquanto o outro inclui o setor da cidade.
+
+Esses três modelos serão ajustados e avaliados.
+
+```{r, results='hide'}
+selecao_exaustiva <- ExhaustiveSearch(save ~ idade + 
+                                        factor(status) + 
+                                        factor(setor) + 
+                                        factor(casa), 
+                                      data = amostra[,-1], family = "binomial",
+                                      performanceMeasure = "AIC")
+
+
+plot_AIC_npar <- ExhaustiveSearch::resultTable(selecao_exaustiva) %>% 
+  mutate(n_par=str_count(Combination, "\\+")+2)
+
+plot_AIC_npar_labels <- plot_AIC_npar %>% 
+  head(3) %>% 
+  mutate(label=str_replace_all(Combination, "factor\\(", ""),
+         label=str_replace_all(label, "\\)", ""), 
+         label=str_squish(label))
+         
+  
+plot_AIC <- plot_AIC_npar %>% 
+  ggplot(aes(x=n_par, y=AIC))+
+  geom_point()+
+  theme_classic(base_size = 16)+
+    scale_x_continuous(limits = c(2, 7))+
+  scale_y_continuous(limits = c(115, 150))+
+  labs(x="Número de Parâmetros", y="AIC")+
+  geom_text(data=plot_AIC_npar_labels,
+            aes(label=label), size=3, nudge_x = c(-0.6, 0.75, -0.75),
+            fontface="bold")+
+  geom_curve(data=plot_AIC_npar_labels[1,],
+             aes(x =n_par*0.85, y = AIC*0.997, xend = n_par, 
+                 yend = AIC*0.997),
+             arrow = arrow(length = unit(0.015, "npc")),
+             curvature = 0.5)+
+  geom_curve(data=plot_AIC_npar_labels[3,],
+             aes(x =n_par*0.85, y = AIC*1.003, xend = n_par, 
+                 yend = AIC*1.003),
+             arrow = arrow(length = unit(0.015, "npc")),
+             curvature = -0.7)+
+   geom_curve(data=plot_AIC_npar_labels[2,],
+             aes(x =n_par*1.15, y = AIC*0.997, xend = n_par, 
+                 yend = AIC*0.997),
+             arrow = arrow(length = unit(0.015, "npc")),
+             curvature = -0.7)
+ggsave("img/AIC.png", width=10)
+
+
+
+
+```
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.8]{img/AIC.png}
+    \caption{Critério de Informação de Akaike (AIC) por número de parâmetros no modelo, para cada modelo possível. Informações obtidas por seleção exaustiva de variáveis.}
+    \label{fig:AIC}
+\end{figure}
+
+## Modelos selecionados
+
+```{r}
+mod1 <- glm(save ~ idade + factor(status), 
+            data = amostra[,-1], family=binomial(link="logit")) 
+
+mod2 <- glm(save ~ idade + factor(status) + 
+              factor(setor), data = amostra[,-1], family=binomial(link="logit"))
+
+mod3 <- glm(save ~ idade + factor(status) + 
+              factor(casa), data = amostra[,-1], family=binomial(link="logit")) 
+```
+
+### Modelo 1
+
+Esse modelo inclui apenas o status e a idade como explicativas.
+
+De acordo com a Tabela 3, a idade apresenta uma associação positiva com a posse de poupança: quanto maior a idade, maior a probabilidade de se ter poupança. Já os coeficientes das variáveis *dummy* para status econômico indicam que a relação dessa variável com a resposta é negativa: avançando nos níveis, reduz-se a probabilidade de possuir poupança. Vale lembrar que os status socioeconômicos mais altos estão com valores/ níveis menores.
+
+Pela razão de chances, observa-se que ao envelhecer 1 ano, o paciente tem 3% a mais de chance de possuir poupança. Além disso, se um paciente com status socioeconômico superior passasse a ter status médio, sua chance de ter poupança se reduziria em 72%. Ou se esse paciente passasse a ter status inferior, sua chance de ter poupança sofreria uma redução de 87%.
+
+```{r}
+#modelo selecionado
+broom::tidy(mod1$coefficients) %>% 
+  mutate(OR=round(exp(x), 2)) %>% 
+  kable(format="latex", booktabs = T, 
+        linesep="", 
+        align=c("c"),
+        col.names=c("Variável", "Coeficiente", "OR"), caption="Estimativas dos parâmetros e das razões de chances para o modelo 1.") %>% 
+  kable_styling(latex_options = "HOLD_position", position="center", 
+                full_width = F)
+```
+
+### Modelo 2
+
+Esse modelo mantém as mesmas variáveis de antes, mas incluindo também o setor de habitação (A ou B) na cidade.
+
+As estimativas dos parâmetos para idade e status são próximas àquelas já apresentadas no modelo anterior.
+
+Quanto ao setor, a sua associação com a resposta é negativa, já que os pacientes do setor B apresentam menor probabilidade de possuir poupança. De fato, a chance de ter poupança para os habitantes do setor B representa 63% dessa chance para os moradores do setor A.
+
+```{r}
+#modelo saturado
+broom::tidy(mod2$coefficients) %>% 
+  mutate(OR=round(exp(x), 2)) %>% 
+  kable(format="latex", booktabs = T, 
+        linesep="", 
+        align=c("c"),
+        col.names=c("Variável", "Coeficiente", "OR"), caption="Estimativas dos parâmetros e das razões de chances para o modelo 2.") %>% 
+  kable_styling(latex_options = "HOLD_position", position="center", 
+                full_width = F)
+```
+
+### Modelo 3
+
+Por fim, ajusta-se o modelo que inclui idade e status socioeconômico, mas também a variável indicadora de posse de casa própria quitada.
+
+Novamente os valores para os atributos já modelados estão próximos ao que foi apresentado anteriormente. Enquanto isso, a variável casa apresentou razão de chances igual a 1, indicando independência entre a posse de casa e a posse de poupança.
+
+```{r}
+#modelo saturado
+broom::tidy(mod3$coefficients) %>% 
+  mutate(OR=round(exp(x), 2)) %>% 
+  kable(format="latex", booktabs = T, 
+        linesep="", 
+        align=c("c"),
+        col.names=c("Variável", "Coeficiente", "OR"), caption="Estimativas dos parâmetros e das razões de chances para o modelo 3.") %>% 
+  kable_styling(latex_options = "HOLD_position", position="center", 
+                full_width = F)
+```
+
+### Avaliação dos modelos
+
+```{r results='hide'}
+png('img/roc.png', pointsize=6, width=850, height=800, res=300)
+#ROC --> avaliação do modelo
+roc1 <- roc( amostra$save,as.vector(fitted.values(mod1)) , 
+          grid=TRUE, percent=T)
+auc1<-comma(as.numeric(roc1$auc), 
+            decimal.mark = ",", accuracy=0.1)
+
+roc2 <- roc( amostra$save,as.vector(fitted.values(mod2)) , 
+          grid=TRUE, percent=T)
+auc2 <-comma(as.numeric(roc2$auc), 
+            decimal.mark = ",", accuracy=0.1)
+
+roc3 <- roc( amostra$save,as.vector(fitted.values(mod3)) , 
+          grid=TRUE, percent=T)
+auc3 <- comma(as.numeric(roc3$auc), 
+            decimal.mark = ",", accuracy=0.1)
+
+plot(roc1 ,xlim=c(100,0),ylim=c(0,100), asp = NA, legacy.axes = F, xlab="Especificidade (%)", ylab="Sensibilidade (%)",percent=T,print.auc = F, main="Curvas ROC", col="blue")
+
+lines(roc2 ,xlim=c(100,0),ylim=c(0,100), asp = NA, legacy.axes = F, 
+      xlab="Especificidade (%)", ylab="Sensibilidade (%)",
+      percent=T,print.auc = TRUE, main="Curva ROC", col="red",
+      lty = 2)
+
+lines(roc3 ,xlim=c(100,0),ylim=c(0,100), asp = NA, legacy.axes = F, xlab="Especificidade (%)", ylab="Sensibilidade (%)",percent=T,print.auc = TRUE, main="Curva ROC", col="green", lty = 3)
+
+
+text(20, 40, paste("AUC(mod1)=", auc1), col="blue")
+text(20, 35, paste("AUC(mod2)=", auc2), col="red")
+text(20, 30, paste("AUC(mod3)=", auc3), col="green")
+
+
+
+```
+
+Tem a curva roc aqui.
+
+```{r}
+# \begin{figure}[H]
+#     \centering
+#     \includegraphics[scale=0.4]{img/roc.png}
+#     \caption{Diagrama de caixas para distribuição de idade entre os grupos sem (azul) e com (verde) poupança. Para comparação, a distribuiçao de idade geral foi adicionada no canto superior esquerdo.}
+#     \label{fig:ROC1}
+# \end{figure}
+```
+
+### Refinamento do modelo
+
+Testando modelos com interação, verificou-se que apenas a interação entre a idade do paciente e a posse de casa própria quitada surtiam efeito significante na modelagem da probabilidade de possuir poupança.
+
+Como pode ser observado na Figura 6, a associação entre idade e posse de poupança é positiva para os moradores do setor A (casa=1) e negativa para os moradores do setor B (casa=2). Ou seja, no setor B os jovens é que tendem a ter poupança.
+
+```{r results='hide'}
+
+mod3_iter <- glm(save ~ idade+factor(status)+
+              factor(casa)+idade:factor(casa), data = amostra[,-1], 
+              family=binomial(link="logit")) 
+summary(mod3_iter)
+
+p <- plot_model(mod3_iter, type="pred", terms=c("idade", "casa"), se=FALSE)+
+  theme_classic(base_size = 14)+
+  labs(x="Idade (anos)", y="Tem poupança")+
+  ggtitle("")
+
+ggsave(plot=p, filename = "img/interacao.png", width=10, height=6)
+```
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.6]{img/interacao.png}
+    \caption{Gráfico de interação entre posse de casa própria quitada e idade do paciente.}
+    \label{fig:interacao}
+\end{figure}
+
+```{r}
+png('img/roc_inter.png', pointsize=6, width=850, height=800, res=300)
+#ROC --> avaliação do modelo
+
+
+roc3_inter <- roc( amostra$save,as.vector(fitted.values(mod3_iter)) , 
+          grid=TRUE, percent=T)
+auc3_inter <- comma(as.numeric(roc3_inter$auc), 
+            decimal.mark = ",", accuracy=0.1)
+
+plot(roc3 ,xlim=c(100,0),ylim=c(0,100), asp = NA, legacy.axes = F, xlab="Especificidade (%)", ylab="Sensibilidade (%)",percent=T,print.auc = F, main="Curvas ROC", col="blue")
+
+lines(roc3_inter ,xlim=c(100,0),ylim=c(0,100), asp = NA, legacy.axes = F, 
+      xlab="Especificidade (%)", ylab="Sensibilidade (%)",
+      percent=T,print.auc = TRUE, main="Curva ROC", col="red",
+      lty = 2)
+
+
+
+text(20, 40, paste("AUC(mod3)=", auc1), col="blue")
+text(20, 35, paste("AUC(interação)=", auc3_inter), col="red")
+
+```
+
+Tem a curva roc aqui.
+
+```{r}
+# \begin{figure}[H]
+#     \centering
+#     \includegraphics[scale=0.4]{img/roc_inter.png}
+#     \caption{Diagrama de caixas para distribuição de idade entre os grupos sem (azul) e com (verde) poupança. Para comparação, a distribuiçao de idade geral foi adicionada no canto superior esquerdo.}
+#     \label{fig:ROC2}
+# \end{figure}
+```
+
+
+### Análise de Resíduos
+
+Finalmente, observa-se o comportamento dos resíduos para o modelo selecionado.
+
+A Figura 7 apresenta os resíduos pelos valores ajustados e está de acordo com o que seria esperado para um modelo de Regressão Logística: para valores ajustados maiores, os resíduos positivos tendem a diminuir em magnitude, enquanto os negativos tendem a aumentar em magnitude.
+
+```{r results='hide'}
+performance_hosmer(mod1)
+performance_hosmer(mod2)
+performance_hosmer(mod3)
+performance_hosmer(mod3_iter)
+mod3_iter$aic
+mod3$aic
+mod2$aic
+mod1$aic
+```
+
+```{r results=F}
+## MODELO 1
+
+
+
+graf1_res <- ggplot()+
+  geom_point(aes(mod1$fitted.values,mod1$residuals),size=2, shape=1)+
+  geom_hline(yintercept=0, linetype = 'dashed')+
+  labs(x="Valores Ajustados", y="Residuos")+
+    theme_classic(base_size = 16)
+
+
+ggsave(plot=graf1_res, filename = "img/residuo1.png", width=8, height=6)
+
+```
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.6]{img/residuo1.png}
+    \caption{Gráfico de resíduos por valores ajustados do modelo selecionado.}
+    \label{fig:residuo1}
+\end{figure}
+
+
+
+```{r}
+
+
+graf2_res <- data.frame(x=1:100, y=mod1$residuals ) %>% 
+ggplot()+
+  geom_point(aes(x,y), size=2, shape=1)+
+  geom_hline(yintercept=0, linetype = 'dashed')+
+  labs(x="ID", y="Residuos")+
+    theme_classic(base_size = 16)
+
+ggsave(plot=graf2_res, filename = "img/residuo2.png", width=8, height=6)
+```
+
+A Figura 8 mostra os resíduos em sequência, os quais se distribuem em duas faixas em torno do zero, sem apresentar padrões de variação no decorrer do sequenciamento. Sendo assim, também está de acordo com o esperado.
+
+```{r, results='hide'}
+#testes para resíduos
+library(lmtest)
+bptest(mod3_iter)
+```
+
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[scale=0.6]{img/residuo2.png}
+    \caption{Gráfico de resíduos sequenciais para o modelo selecionado.}
+    \label{fig:residuo2}
+\end{figure}
+
+
+# Conclusão
+
+\newpage
+# Apêndice
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
+
+
+
